@@ -1,4 +1,4 @@
-name: ⚡ Upload MP4 Only to file.io
+name: ⚡ Upload MP4 Only to file.io (Fixed URL Extraction)
 
 on:
   workflow_dispatch:
@@ -33,31 +33,43 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Upload each MP4 to file.io with retry logic
+      - name: Upload each MP4 to file.io with robust URL parsing
         id: upload
         run: |
           declare -a uploaded
           MAX_RETRIES=5
           SLEEP_INTERVAL=10
 
-          # MP4 ファイルのみを列挙
           find content -type f -iname '*.mp4' | while IFS= read -r file; do
             echo "📤 Uploading: $file"
             attempt=1
             success=false
 
             until [ $attempt -gt $MAX_RETRIES ]; do
-              # file.io に multipart/form-data で送信
+              # アップロード
               response=$(curl -s -F file=@"$file" https://file.io?expires=14d)
-              # JSON から link フィールドを抽出
-              url=$(echo "$response" | jq -r '.link')
+              echo "⚙️ Response JSON: $response"
 
-              if [ "$url" != "null" ]; then
+              # まず link を取得
+              link=$(echo "$response" | jq -r '.link // empty')
+              if [ -z "$link" ] || [ "$link" = "null" ]; then
+                # link が空 or null なら id or key から URL を構築
+                id=$(echo "$response" | jq -r '.id // .key // empty')
+                if [ -n "$id" ]; then
+                  url="https://file.io/$id"
+                else
+                  url=""
+                fi
+              else
+                url="$link"
+              fi
+
+              if [ -n "$url" ]; then
                 echo "✅ Success: $url"
                 success=true
                 break
               else
-                echo "⚠️  Attempt $attempt/$MAX_RETRIES failed, response: $response"
+                echo "⚠️ Attempt $attempt/$MAX_RETRIES failed to extract URL, retrying in ${SLEEP_INTERVAL}s..."
                 attempt=$((attempt+1))
                 sleep $SLEEP_INTERVAL
               fi
@@ -71,7 +83,7 @@ jobs:
             uploaded+=("$file: $url")
           done
 
-          # 結果をまとめて出力変数へ
+          # 結果を出力変数にまとめる
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
