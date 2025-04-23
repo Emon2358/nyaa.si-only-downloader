@@ -1,4 +1,4 @@
-name: ⚡ Torrent 内の MP4 のみ GigaFile便 にアップロード
+name: ⚡ Torrent 内の MP4 のみ GigaFile便 に高速アップロード（リトライ付き）
 
 on:
   workflow_dispatch:
@@ -37,19 +37,41 @@ jobs:
         run: |
           pip3 install --no-cache-dir git+https://github.com/Sraq-Zit/gfile.git
 
-      - name: Upload each MP4 to GigaFile便
+      - name: Upload each MP4 to GigaFile便 with retry logic
         id: upload
         run: |
           declare -a uploaded
-          # .torrent ファイルは除外し、MP4 だけを探す
-          while IFS= read -r file; do
-            echo "Uploading: $file"
-            url=$(gfile upload "$file")   # 
-            echo " → $url"
-            uploaded+=("$file: $url")
-          done < <(find content -type f \( -iname '*.mp4' \))
+          MAX_RETRIES=5
+          SLEEP_INTERVAL=10
 
-          # 結果をまとめて出力変数へ
+          # MP4 ファイルだけを列挙
+          find content -type f -iname '*.mp4' | while read -r file; do
+            echo "📤 Uploading: $file"
+
+            attempt=1
+            success=false
+            until [ "$attempt" -gt "$MAX_RETRIES" ] ; do
+              # -n 4: 4スレッド並列アップロード, -p: プログレスバー非表示
+              if url=$(gfile upload -n 4 -p "$file"); then
+                echo "✅ Success: $url"
+                success=true
+                break
+              else
+                echo "⚠️  Upload failed (attempt $attempt/$MAX_RETRIES), retrying in ${SLEEP_INTERVAL}s..."
+                attempt=$((attempt+1))
+                sleep $SLEEP_INTERVAL
+              fi
+            done
+
+            if [ "$success" = false ] ; then
+              echo "❌ Failed to upload $file after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+
+            uploaded+=("$file: $url")
+          done
+
+          # 結果をまとめて出力変数に
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
