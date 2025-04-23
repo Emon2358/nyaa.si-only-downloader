@@ -1,4 +1,4 @@
-name: ⚡ Upload MP4 Only to GigaFile便
+name: ⚡ Download, Compress MP4, and Push to Repo
 
 on:
   workflow_dispatch:
@@ -9,15 +9,24 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  upload-mp4-to-gigafile:
+  download-compress-push:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. リポジトリをチェックアウト（コミット権限付き）
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true   # GITHUB_TOKEN を維持
+          fetch-depth: 0              # full history
+
+      # 2. 必要ツールのインストール
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 curl jq python3-pip
+          sudo apt-get install -y -qq aria2 ffmpeg
 
+      # 3. Torrent から MP4 をダウンロード
       - name: Download via aria2c
         run: |
           mkdir content
@@ -33,37 +42,33 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Install gigafile CLI
+      # 4. MP4 を最大圧縮
+      - name: Compress MP4 files
         run: |
-          python3 -m pip install --upgrade pip
-          pip install gigafile
-
-      - name: Upload each MP4 to GigaFile便
-        id: upload
-        run: |
-          declare -a uploaded
-
+          mkdir compressed
           find content -type f -iname '*.mp4' | while IFS= read -r file; do
-            echo "📤 Uploading: $file"
-            # --mute オプションで URL のみが出力されます
-            url=$(gfile upload --mute "$file")
-            if [[ "$url" =~ ^https?:// ]]; then
-              echo "✅ Success: $url"
-              uploaded+=("$file: $url")
-            else
-              echo "❌ Upload failed for $file"
-              exit 1
-            fi
+            echo "🔧 Compressing: $file"
+            filename=$(basename "$file")
+            # H.264でCRF35、very slowプリセット、AAC 128kbps で圧縮
+            ffmpeg -y -i "$file" \
+              -c:v libx264 -preset veryslow -crf 35 \
+              -c:a aac -b:a 128k \
+              "compressed/$filename"
           done
 
-          # 結果を GitHub Actions の出力変数に設定
-          echo "results<<EOF" >> $GITHUB_OUTPUT
-          for entry in "${uploaded[@]}"; do
-            echo "$entry"
-          done >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Show uploaded MP4 URLs
+      # 5. 圧縮後ファイルをコミット＆プッシュ
+      - name: Commit and push compressed files
         run: |
-          echo "===== MP4 Upload Results ====="
-          echo "${{ steps.upload.outputs.results }}"
+          cd $GITHUB_WORKSPACE
+          # Gitユーザー設定
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 変更チェック
+          if git diff --quiet --exit-code compressed/; then
+            echo "No changes in compressed/ – skipping commit."
+          else
+            git add compressed/
+            git commit -m "Add compressed MP4 files"
+            git push
+          fi
