@@ -1,4 +1,4 @@
-name: ⚡ Torrent 内ファイルを直接 GigaFile便 にアップロード
+name: ⚡ Torrent 内の MP4 のみ GigaFile便 にアップロード
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  upload-all:
+  upload-mp4-only:
     runs-on: ubuntu-latest
 
     steps:
@@ -37,26 +37,26 @@ jobs:
         run: |
           pip3 install --no-cache-dir git+https://github.com/Sraq-Zit/gfile.git
 
-      - name: Upload each file to GigaFile便
+      - name: Upload each MP4 to GigaFile便
         id: upload
         run: |
-          # content/ 以下の全ファイルを再帰検索してアップロード
           declare -a uploaded
+          # .torrent ファイルは除外し、MP4 だけを探す
           while IFS= read -r file; do
             echo "Uploading: $file"
-            url=$(gfile upload "$file")  #  [oai_citation_attribution:0‡GitHub](https://github.com/Sraq-Zit/gfile)
+            url=$(gfile upload "$file")   # 
             echo " → $url"
             uploaded+=("$file: $url")
-          done < <(find content -type f)
+          done < <(find content -type f \( -iname '*.mp4' \))
 
-          # 結果を改行区切りの文字列として出力変数にセット
+          # 結果をまとめて出力変数へ
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
           done >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Show all uploaded URLs
+      - name: Show uploaded MP4 URLs
         run: |
-          echo "===== アップロード結果 ====="
+          echo "===== MP4 アップロード結果 ====="
           echo "${{ steps.upload.outputs.results }}"
