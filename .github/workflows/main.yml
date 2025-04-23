@@ -1,4 +1,4 @@
-name: ⚡ Download and Upload MP4
+name: ⚡ Download and Ultra-Fast Transcode & Upload MP4
 
 on:
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq aria2 python3-pip ffmpeg
 
-      # 3. Torrent から MP4 をダウンロード
+      # 3. Torrent → content/*.mp4
       - name: Download via aria2c
         run: |
           mkdir content
@@ -42,42 +42,23 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      # 4. デバッグ：ストリーム情報を表示
-      - name: Probe downloaded MP4 streams
-        run: |
-          for f in content/*.mp4; do
-            echo "=== $f ==="
-            echo "-- video streams --"
-            ffprobe -v error -select_streams v:0 -show_streams -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "$f" || echo "no video"
-            echo "-- audio streams --"
-            ffprobe -v error -select_streams a:0 -show_streams -show_entries stream=codec_name -of default=noprint_wrappers=1 "$f" || echo "no audio"
-          done  # ストリーム情報表示に ffprobe を使用 :contentReference[oaicite:0]{index=0}
-
-      # 5. 映像ストリームがなければ失敗させる
-      - name: Fail if no video stream
-        run: |
-          for f in content/*.mp4; do
-            if ! ffprobe -v error -select_streams v -show_streams "$f" | grep -q codec_type=video; then
-              echo "ERROR: $f に video ストリームが見つかりませんでした" >&2
-              exit 1
-            fi
-          done
-
-      # 6. 確実に映像＋音声を含むよう再エンコード＆faststart
-      - name: Transcode MP4 for video+audio + faststart
+      # 4. 超高速再エンコード（ultrafast + threads auto）
+      - name: Ultra-Fast Transcode for streaming
         run: |
           mkdir streamable
           for f in content/*.mp4; do
-            echo "🔄 Transcoding and faststart: $f"
+            echo "🔄 Fast-transcoding: $f"
             fn=$(basename "$f")
-            ffmpeg -y -i "$f" \
-              -c:v libx264 -preset veryslow -crf 23 -pix_fmt yuv420p \
-              -c:a aac -b:a 128k \
+            ffmpeg -y \
+              -threads 0 \                          # 全コアを自動利用 :contentReference[oaicite:3]{index=3}
+              -i "$f" \
+              -c:v libx264 -preset ultrafast -crf 35 \  # 最速プリセット＋品質軽視で高速化 :contentReference[oaicite:4]{index=4}
+              -c:a aac -b:a 64k \                   # 音声もできるだけ軽く
               -movflags +faststart \
               "streamable/$fn"
-          done  # H.264 に再エンコード＆moov atom を先頭に移動 :contentReference[oaicite:1]{index=1}
+          done
 
-      # 7. 最適化済み MP4 を GigaFile便 にアップロードし URL 表示
+      # 5. アップロード＆URL表示
       - name: Upload to GigaFile便 and show URLs
         run: |
           pip3 install --upgrade gigafile
