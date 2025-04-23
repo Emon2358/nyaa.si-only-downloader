@@ -1,4 +1,4 @@
-name: ⚡ Upload MP4 Only to file.io (Fixed URL Extraction)
+name: ⚡ Upload MP4 Only to 0x0.st
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  upload-mp4-to-fileio:
+  upload-mp4-to-0x0:
     runs-on: ubuntu-latest
 
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 curl jq
+          sudo apt-get install -y -qq aria2 curl
 
       - name: Download via aria2c (max parallel)
         run: |
@@ -33,43 +33,27 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Upload each MP4 to file.io with robust URL parsing
+      - name: Upload each MP4 to 0x0.st with retry logic
         id: upload
         run: |
           declare -a uploaded
           MAX_RETRIES=5
           SLEEP_INTERVAL=10
 
+          # MP4 ファイルのみを列挙
           find content -type f -iname '*.mp4' | while IFS= read -r file; do
             echo "📤 Uploading: $file"
             attempt=1
             success=false
 
             until [ $attempt -gt $MAX_RETRIES ]; do
-              # アップロード
-              response=$(curl -s -F file=@"$file" https://file.io?expires=14d)
-              echo "⚙️ Response JSON: $response"
-
-              # まず link を取得
-              link=$(echo "$response" | jq -r '.link // empty')
-              if [ -z "$link" ] || [ "$link" = "null" ]; then
-                # link が空 or null なら id or key から URL を構築
-                id=$(echo "$response" | jq -r '.id // .key // empty')
-                if [ -n "$id" ]; then
-                  url="https://file.io/$id"
-                else
-                  url=""
-                fi
-              else
-                url="$link"
-              fi
-
-              if [ -n "$url" ]; then
+              # 0x0.st に multipart/form-data で送信
+              if url=$(curl --fail --silent -F "file=@$file" https://0x0.st); then
                 echo "✅ Success: $url"
                 success=true
                 break
               else
-                echo "⚠️ Attempt $attempt/$MAX_RETRIES failed to extract URL, retrying in ${SLEEP_INTERVAL}s..."
+                echo "⚠️  Attempt $attempt/$MAX_RETRIES failed—retrying in ${SLEEP_INTERVAL}s..."
                 attempt=$((attempt+1))
                 sleep $SLEEP_INTERVAL
               fi
@@ -83,7 +67,7 @@ jobs:
             uploaded+=("$file: $url")
           done
 
-          # 結果を出力変数にまとめる
+          # 結果をまとめて出力変数へ
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
