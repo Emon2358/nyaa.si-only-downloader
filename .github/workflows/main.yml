@@ -1,0 +1,52 @@
+name: ⚡ Super Fast Torrent Download & Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      torrent_url:
+        description: 'ダウンロードする .torrent の URL'
+        required: true
+        default: 'https://sukebei.nyaa.si/download/3957463.torrent'
+
+jobs:
+  turbo:
+    runs-on: ubuntu-latest
+
+    steps:
+      # （オプション）ランナーのクリーンキャッシュを避けたい場合は
+      # container: docker://ubuntu:22.04 などを指定してもOK
+
+      - name: Install minimal tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 pigz curl
+
+      - name: Download via aria2c (max parallel)
+        run: |
+          mkdir content
+          aria2c \
+            --dir=content \
+            --seed-time=0 \
+            --split=16 \
+            --max-connection-per-server=16 \
+            --max-concurrent-downloads=4 \
+            --min-split-size=1M \
+            --retry-wait=5 \
+            --timeout=60 \
+            --summary-interval=1 \
+            "${{ github.event.inputs.torrent_url }}"
+
+      - name: Parallel compress with pigz + tar
+        run: |
+          # ストリーミングで I/O を削減しつつ
+          tar cf - -C content . | pigz -p $(nproc) > download.tar.gz
+
+      - name: Upload to transfer.sh with progress
+        id: upload
+        run: |
+          URL=$(curl --progress-bar --upload-file download.tar.gz https://transfer.sh/download.tar.gz)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Reveal final URL
+        run: |
+          echo "👉 Downloaded & uploaded at maximum speed: ${{ steps.upload.outputs.url }}"
