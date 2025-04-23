@@ -6,7 +6,7 @@ on:
       torrent_url:
         description: 'ダウンロードする .torrent の URL'
         required: true
-        default: 'https://sukebei.nyaa.si/download/3957463.torrent'
+        default: 'https://sukebei.nyaa.si/download/4250850.torrent'
 
 jobs:
   download-and-upload:
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 python3-pip
+          sudo apt-get install -y -qq aria2 python3-pip ffmpeg
 
       # 3. Torrent から MP4 をダウンロード
       - name: Download via aria2c
@@ -42,16 +42,24 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      # 4. ダウンロードした MP4 を GigaFile便 にアップロードし、URL を表示
-      - name: Upload MP4 to GigaFile便 and show URLs
+      # 4. Remux for faststart: moov atom を先頭に移動
+      - name: Remux MP4 for streaming
+        run: |
+          mkdir streamable
+          for f in content/*.mp4; do
+            echo "🔄 Remuxing for faststart: $f"
+            fn=$(basename "$f")
+            ffmpeg -y -i "$f" -c copy -movflags +faststart "streamable/$fn"
+          done  # “moov atom” を先頭に移動しプログレッシブ再生を有効化 :contentReference[oaicite:0]{index=0}
+
+      # 5. Remux 済み MP4 を GigaFile便 にアップロードし、URL を表示
+      - name: Upload remuxed MP4 to GigaFile便 and show URLs
         run: |
           pip3 install --upgrade gigafile
           echo "=== Uploaded URLs ==="
-          for f in content/*.mp4; do
+          for f in streamable/*.mp4; do
             echo "📤 Uploading $f …"
-            # 絶対パスで渡すことで AssertionError を回避
             abs=$(realpath "$f")
             url=$(gfile upload "$abs")
             echo "→ $url"
           done
-
