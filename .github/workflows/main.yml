@@ -13,14 +13,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. リポジトリをチェックアウト（コミット権限は不要ですが残しています）
+      # 1. リポジトリチェックアウト
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           persist-credentials: true
           fetch-depth: 0
 
-      # 2. 必要ツールのインストール
+      # 2. ツール類インストール
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
@@ -42,18 +42,43 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      # 4. Remux for faststart: moov atom を先頭に移動
-      - name: Remux MP4 for streaming
+      # 4. デバッグ：ストリーム情報を表示
+      - name: Probe downloaded MP4 streams
+        run: |
+          for f in content/*.mp4; do
+            echo "=== $f ==="
+            echo "-- video streams --"
+            ffprobe -v error -select_streams v:0 -show_streams -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "$f" || echo "no video"
+            echo "-- audio streams --"
+            ffprobe -v error -select_streams a:0 -show_streams -show_entries stream=codec_name -of default=noprint_wrappers=1 "$f" || echo "no audio"
+          done  # ストリーム情報表示に ffprobe を使用 :contentReference[oaicite:0]{index=0}
+
+      # 5. 映像ストリームがなければ失敗させる
+      - name: Fail if no video stream
+        run: |
+          for f in content/*.mp4; do
+            if ! ffprobe -v error -select_streams v -show_streams "$f" | grep -q codec_type=video; then
+              echo "ERROR: $f に video ストリームが見つかりませんでした" >&2
+              exit 1
+            fi
+          done
+
+      # 6. 確実に映像＋音声を含むよう再エンコード＆faststart
+      - name: Transcode MP4 for video+audio + faststart
         run: |
           mkdir streamable
           for f in content/*.mp4; do
-            echo "🔄 Remuxing for faststart: $f"
+            echo "🔄 Transcoding and faststart: $f"
             fn=$(basename "$f")
-            ffmpeg -y -i "$f" -c copy -movflags +faststart "streamable/$fn"
-          done  # “moov atom” を先頭に移動しプログレッシブ再生を有効化 :contentReference[oaicite:0]{index=0}
+            ffmpeg -y -i "$f" \
+              -c:v libx264 -preset veryslow -crf 23 -pix_fmt yuv420p \
+              -c:a aac -b:a 128k \
+              -movflags +faststart \
+              "streamable/$fn"
+          done  # H.264 に再エンコード＆moov atom を先頭に移動 :contentReference[oaicite:1]{index=1}
 
-      # 5. Remux 済み MP4 を GigaFile便 にアップロードし、URL を表示
-      - name: Upload remuxed MP4 to GigaFile便 and show URLs
+      # 7. 最適化済み MP4 を GigaFile便 にアップロードし URL 表示
+      - name: Upload to GigaFile便 and show URLs
         run: |
           pip3 install --upgrade gigafile
           echo "=== Uploaded URLs ==="
