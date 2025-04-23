@@ -1,4 +1,4 @@
-name: ⚡ Download, Compress MP4, and Push to Repo
+name: ⚡ Download and Upload MP4
 
 on:
   workflow_dispatch:
@@ -9,22 +9,22 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  download-compress-push:
+  download-and-upload:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. リポジトリをチェックアウト（コミット権限付き）
+      # 1. リポジトリをチェックアウト（コミット権限は不要になりましたが残しています）
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: true   # GITHUB_TOKEN を維持
-          fetch-depth: 0              # full history
+          persist-credentials: true
+          fetch-depth: 0
 
       # 2. 必要ツールのインストール
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 ffmpeg
+          sudo apt-get install -y -qq aria2 python3-pip
 
       # 3. Torrent から MP4 をダウンロード
       - name: Download via aria2c
@@ -42,33 +42,14 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      # 4. MP4 を最大圧縮
-      - name: Compress MP4 files
+      # 4. ダウンロードした MP4 を GigaFile便 にアップロードし、URL を表示
+      - name: Upload MP4 to GigaFile便 and show URLs
         run: |
-          mkdir compressed
-          find content -type f -iname '*.mp4' | while IFS= read -r file; do
-            echo "🔧 Compressing: $file"
-            filename=$(basename "$file")
-            # H.264でCRF35、very slowプリセット、AAC 128kbps で圧縮
-            ffmpeg -y -i "$file" \
-              -c:v libx264 -preset veryslow -crf 35 \
-              -c:a aac -b:a 128k \
-              "compressed/$filename"
+          pip3 install --upgrade gigafile
+          echo "=== Uploaded URLs ==="
+          for f in content/*.mp4; do
+            echo "📤 Uploading $f …"
+            # GigaFile CLI が返す URL をキャプチャ
+            url=$(gfile upload "$f")
+            echo "→ $url"
           done
-
-      # 5. 圧縮後ファイルをコミット＆プッシュ
-      - name: Commit and push compressed files
-        run: |
-          cd $GITHUB_WORKSPACE
-          # Gitユーザー設定
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # 変更チェック
-          if git diff --quiet --exit-code compressed/; then
-            echo "No changes in compressed/ – skipping commit."
-          else
-            git add compressed/
-            git commit -m "Add compressed MP4 files"
-            git push
-          fi
