@@ -1,4 +1,4 @@
-name: ⚡ Super Fast Torrent Download & Upload
+name: ⚡ Super Fast Torrent Download & Upload to GigaFile便
 
 on:
   workflow_dispatch:
@@ -13,13 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # （オプション）ランナーのクリーンキャッシュを避けたい場合は
-      # container: docker://ubuntu:22.04 などを指定してもOK
-
       - name: Install minimal tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 pigz curl
+          sudo apt-get install -y -qq aria2 pigz curl python3-pip
 
       - name: Download via aria2c (max parallel)
         run: |
@@ -38,15 +35,20 @@ jobs:
 
       - name: Parallel compress with pigz + tar
         run: |
-          # ストリーミングで I/O を削減しつつ
           tar cf - -C content . | pigz -p $(nproc) > download.tar.gz
 
-      - name: Upload to transfer.sh with progress
+      - name: Install gfile CLI for GigaFile便
+        run: |
+          # gfile: Pythonモジュール兼CLI。uploadコマンドでギガファイル便へ送信可能
+          pip3 install --no-cache-dir git+https://github.com/Sraq-Zit/gfile.git
+
+      - name: Upload to GigaFile便
         id: upload
         run: |
-          URL=$(curl --progress-bar --upload-file download.tar.gz https://transfer.sh/download.tar.gz)
+          # gfile upload が返す URL をそのままキャプチャ
+          URL=$(gfile upload download.tar.gz)
           echo "url=$URL" >> $GITHUB_OUTPUT
 
-      - name: Reveal final URL
+      - name: Reveal final GigaFile便 URL
         run: |
-          echo "👉 Downloaded & uploaded at maximum speed: ${{ steps.upload.outputs.url }}"
+          echo "👉 GigaFile便 のダウンロードページはこちら: ${{ steps.upload.outputs.url }}"
