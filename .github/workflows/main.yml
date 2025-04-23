@@ -1,4 +1,4 @@
-name: ⚡ Upload MP4 Only to transfer.sh
+name: ⚡ Upload MP4 Only to file.io
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  upload-mp4-to-transfersh:
+  upload-mp4-to-fileio:
     runs-on: ubuntu-latest
 
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 curl
+          sudo apt-get install -y -qq aria2 curl jq
 
       - name: Download via aria2c (max parallel)
         run: |
@@ -33,27 +33,31 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Upload each MP4 to transfer.sh with retry logic
+      - name: Upload each MP4 to file.io with retry logic
         id: upload
         run: |
           declare -a uploaded
           MAX_RETRIES=5
           SLEEP_INTERVAL=10
 
-          # content/ 以下の MP4 ファイルだけを列挙
-          find content -type f -iname '*.mp4' | while read -r file; do
+          # MP4 ファイルのみを列挙
+          find content -type f -iname '*.mp4' | while IFS= read -r file; do
             echo "📤 Uploading: $file"
-
             attempt=1
             success=false
+
             until [ $attempt -gt $MAX_RETRIES ]; do
-              # transfer.sh は HTTP PUT で受け付け。返却はアップロード先の URL  [oai_citation_attribution:0‡GitHub](https://github.com/dutchcoders/transfer.sh/blob/main/examples.md?utm_source=chatgpt.com) [oai_citation_attribution:1‡LFCS認定準備eBook](https://www.tecmint.com/file-sharing-from-linux-commandline/?utm_source=chatgpt.com)
-              if url=$(curl --fail --silent --show-error --upload-file "$file" https://transfer.sh/$(basename "$file")); then
+              # file.io に multipart/form-data で送信
+              response=$(curl -s -F file=@"$file" https://file.io?expires=14d)
+              # JSON から link フィールドを抽出
+              url=$(echo "$response" | jq -r '.link')
+
+              if [ "$url" != "null" ]; then
                 echo "✅ Success: $url"
                 success=true
                 break
               else
-                echo "⚠️  Attempt $attempt/$MAX_RETRIES failed—retrying in ${SLEEP_INTERVAL}s..."
+                echo "⚠️  Attempt $attempt/$MAX_RETRIES failed, response: $response"
                 attempt=$((attempt+1))
                 sleep $SLEEP_INTERVAL
               fi
@@ -67,7 +71,7 @@ jobs:
             uploaded+=("$file: $url")
           done
 
-          # 結果を出力変数にまとめる
+          # 結果をまとめて出力変数へ
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
