@@ -1,4 +1,4 @@
-name: ⚡ Super Fast Torrent Download & Upload to GigaFile便
+name: ⚡ Torrent 内ファイルを直接 GigaFile便 にアップロード
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  turbo:
+  upload-all:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install minimal tools
+      - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 pigz curl python3-pip
+          sudo apt-get install -y -qq aria2 curl python3-pip
 
       - name: Download via aria2c (max parallel)
         run: |
@@ -33,22 +33,30 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Parallel compress with pigz + tar
-        run: |
-          tar cf - -C content . | pigz -p $(nproc) > download.tar.gz
-
       - name: Install gfile CLI for GigaFile便
         run: |
-          # gfile: Pythonモジュール兼CLI。uploadコマンドでギガファイル便へ送信可能
           pip3 install --no-cache-dir git+https://github.com/Sraq-Zit/gfile.git
 
-      - name: Upload to GigaFile便
+      - name: Upload each file to GigaFile便
         id: upload
         run: |
-          # gfile upload が返す URL をそのままキャプチャ
-          URL=$(gfile upload download.tar.gz)
-          echo "url=$URL" >> $GITHUB_OUTPUT
+          # content/ 以下の全ファイルを再帰検索してアップロード
+          declare -a uploaded
+          while IFS= read -r file; do
+            echo "Uploading: $file"
+            url=$(gfile upload "$file")  #  [oai_citation_attribution:0‡GitHub](https://github.com/Sraq-Zit/gfile)
+            echo " → $url"
+            uploaded+=("$file: $url")
+          done < <(find content -type f)
 
-      - name: Reveal final GigaFile便 URL
+          # 結果を改行区切りの文字列として出力変数にセット
+          echo "results<<EOF" >> $GITHUB_OUTPUT
+          for entry in "${uploaded[@]}"; do
+            echo "$entry"
+          done >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Show all uploaded URLs
         run: |
-          echo "👉 GigaFile便 のダウンロードページはこちら: ${{ steps.upload.outputs.url }}"
+          echo "===== アップロード結果 ====="
+          echo "${{ steps.upload.outputs.results }}"
