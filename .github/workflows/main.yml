@@ -1,4 +1,4 @@
-name: ⚡ Upload MP4 Only to PixelDrain
+name: ⚡ Upload MP4 Only to GigaFile便
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ on:
         default: 'https://sukebei.nyaa.si/download/3957463.torrent'
 
 jobs:
-  upload-mp4-to-pixeldrain:
+  upload-mp4-to-gigafile:
     runs-on: ubuntu-latest
 
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aria2 curl jq
+          sudo apt-get install -y -qq aria2 curl jq python3-pip
 
       - name: Download via aria2c
         run: |
@@ -33,20 +33,21 @@ jobs:
             --summary-interval=1 \
             "${{ github.event.inputs.torrent_url }}"
 
-      - name: Upload each MP4 to PixelDrain
+      - name: Install gigafile CLI
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install gigafile
+
+      - name: Upload each MP4 to GigaFile便
         id: upload
         run: |
           declare -a uploaded
 
           find content -type f -iname '*.mp4' | while IFS= read -r file; do
             echo "📤 Uploading: $file"
-
-            response=$(curl -s -X POST -F "file=@$file" https://pixeldrain.com/api/file)
-            echo "⚙️ Response: $response"
-
-            id=$(echo "$response" | jq -r '.id')
-            if [ -n "$id" ] && [ "$id" != "null" ]; then
-              url="https://pixeldrain.com/u/$id"
+            # --mute オプションで URL のみが出力されます
+            url=$(gfile upload --mute "$file")
+            if [[ "$url" =~ ^https?:// ]]; then
               echo "✅ Success: $url"
               uploaded+=("$file: $url")
             else
@@ -55,6 +56,7 @@ jobs:
             fi
           done
 
+          # 結果を GitHub Actions の出力変数に設定
           echo "results<<EOF" >> $GITHUB_OUTPUT
           for entry in "${uploaded[@]}"; do
             echo "$entry"
