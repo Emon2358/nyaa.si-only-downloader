@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. リポジトリをチェックアウト（コミット権限は不要になりましたが残しています）
+      # 1. リポジトリをチェックアウト（コミット権限は不要ですが残しています）
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
@@ -49,7 +49,9 @@ jobs:
           echo "=== Uploaded URLs ==="
           for f in content/*.mp4; do
             echo "📤 Uploading $f …"
-            # GigaFile CLI が返す URL をキャプチャ
-            url=$(gfile upload "$f")
+            # 絶対パスで渡すことで AssertionError を回避
+            abs=$(realpath "$f")
+            url=$(gfile upload "$abs")
             echo "→ $url"
           done
+
