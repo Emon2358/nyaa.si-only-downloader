@@ -29,7 +29,7 @@ jobs:
       # 3. Torrent → content/*.mp4
       - name: Download via aria2c
         run: |
-          mkdir content
+          mkdir -p content
           aria2c \
             --dir=content \
             --seed-time=0 \
@@ -45,17 +45,17 @@ jobs:
       # 4. 超高速再エンコード（ultrafast + threads auto）
       - name: Ultra-Fast Transcode for streaming
         run: |
-          mkdir streamable
+          # nullglob で *.mp4 未マッチ時のループを防止
+          shopt -s nullglob
+          mkdir -p streamable
           for f in content/*.mp4; do
             echo "🔄 Fast-transcoding: $f"
-            fn=$(basename "$f")
-            ffmpeg -y \
-              -threads 0 \                          # 全コアを自動利用 :contentReference[oaicite:3]{index=3}
-              -i "$f" \
-              -c:v libx264 -preset ultrafast -crf 35 \  # 最速プリセット＋品質軽視で高速化 :contentReference[oaicite:4]{index=4}
-              -c:a aac -b:a 64k \                   # 音声もできるだけ軽く
-              -movflags +faststart \
-              "streamable/$fn"
+            fn=${f##*/}  # basename の代替で高速
+            ffmpeg -y -threads 0 -i "$f" \
+                   -c:v libx264 -preset ultrafast -crf 35 \
+                   -c:a aac -b:a 64k \
+                   -movflags +faststart \
+                   "streamable/$fn"
           done
 
       # 5. アップロード＆URL表示
