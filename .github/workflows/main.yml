@@ -63,9 +63,15 @@ jobs:
         run: |
           pip3 install --upgrade gigafile
           echo "=== Uploaded URLs ==="
+          # nullglob で *.mp4 未マッチ時のループを防止
+          shopt -s nullglob
           for f in streamable/*.mp4; do
-            echo "📤 Uploading $f …"
-            abs=$(realpath "$f")
-            url=$(gfile upload "$abs")
-            echo "→ $url"
+            if [ -f "$f" ]; then
+              echo "📤 Uploading $f …"
+              abs=$(realpath "$f")
+              url=$(gfile upload "$abs")
+              echo "→ $url"
+            else
+              echo "⚠️ Skipping non-existent path: $f"
+            fi
           done
