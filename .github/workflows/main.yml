@@ -1,4 +1,4 @@
-name: ⚡ Download and Ultra-Fast Transcode & Upload MP4
+name: ⚡ Download, Transcode & Release MP4
 
 on:
   workflow_dispatch:
@@ -7,18 +7,22 @@ on:
         description: 'ダウンロードする .torrent の URL'
         required: true
         default: 'https://sukebei.nyaa.si/download/4250850.torrent'
+      release_tag:
+        description: '作成するリリースのタグ名'
+        required: true
+        default: 'v1.0.0'
+      release_name:
+        description: '作成するリリースの名前'
+        required: false
+        default: ''
 
 jobs:
-  download-and-upload:
+  build-and-release:
     runs-on: ubuntu-latest
-
     steps:
       # 1. リポジトリチェックアウト
       - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          persist-credentials: true
-          fetch-depth: 0
 
       # 2. ツール類インストール
       - name: Install dependencies
@@ -57,21 +61,18 @@ jobs:
                    "streamable/$fn"
           done
 
-      # 5. アップロード＆URL表示（ワンライナー Python 呼び出し版）
-      - name: Upload to GigaFile便 and show URLs
+      # 5. Debug: streamable フォルダ内を確認
+      - name: List streamable files
         run: |
-          pip3 install --upgrade gigafile
-          echo "=== Uploaded URLs ==="
-          shopt -s nullglob
-          for f in streamable/*.mp4; do
-            if [ -f "$f" ]; then
-              echo "📤 Uploading $f …"
-              url=$(
-                python3 -c "from gfile import GFile; print(GFile('$f', progress=False).upload().get_download_page())"
-              )
-              echo "→ $url"
-            else
-              echo "⚠️ No such file: $f"
-            fi
-          done
+          echo "=== streamable files ==="
+          ls -l streamable
 
+      # 6. GitHub Release の作成 & streamable/*.mp4 をすべてアップロード
+      - name: Create GitHub Release and upload artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: ${{ github.event.inputs.release_name || github.event.inputs.release_tag }}
+          files: streamable/*.mp4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
